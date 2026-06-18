@@ -101,8 +101,30 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
     return visibleCards.filter((c) => c.chapter === displayChapter)
   }, [visibleCards, displayChapter])
 
+  const revealedCards = useMemo((): Card[] => {
+    if (displayChapter === null) return cards
+    if (!isPlaying) {
+      return cards.filter((c) => c.chapter <= displayChapter)
+    }
+    return cards.filter((card) => {
+      if (card.chapter < displayChapter) return true
+      if (card.chapter > displayChapter) return false
+      const idx = newChapterCards.findIndex((c) => c.id === card.id)
+      if (idx < 0) return true
+      const appearsAtStep = idx + 1
+      return playbackStep >= appearsAtStep
+    })
+  }, [cards, displayChapter, isPlaying, newChapterCards, playbackStep])
+
+  const revealedConnections = useMemo(() => {
+    const revealedIds = new Set(revealedCards.map((c) => c.id))
+    return connections.filter(
+      (conn) => revealedIds.has(conn.sourceId) && revealedIds.has(conn.targetId)
+    )
+  }, [revealedCards, connections])
+
   const tickLoop = useCallback(() => {
-    if (!isPlaying) return
+    if (!isPlaying || displayChapter === null) return
     const now = performance.now()
     const dt = now - lastTickRef.current
     lastTickRef.current = now
@@ -115,8 +137,17 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
         setPlaybackStep((p) => {
           const nextStep = p + 1
           if (nextStep >= totalSteps) {
-            setIsPlaying(false)
-            return p
+            const currentIdx = sortedChapters.findIndex((c) => c.number === displayChapter)
+            if (currentIdx < sortedChapters.length - 1) {
+              const nextChapter = sortedChapters[currentIdx + 1]
+              setCurrentChapter(nextChapter.number)
+              setPlaybackStep(0)
+              setElapsedPct(0)
+              return 0
+            } else {
+              setIsPlaying(false)
+              return p
+            }
           }
           return nextStep
         })
@@ -125,7 +156,7 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
       return next
     })
     rafRef.current = requestAnimationFrame(tickLoop)
-  }, [isPlaying, newChapterCards])
+  }, [isPlaying, displayChapter, newChapterCards, sortedChapters, setCurrentChapter])
 
   useEffect(() => {
     if (isPlaying) {
@@ -154,9 +185,10 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
     if (sortedChapters.length === 0 || displayChapter === null) return
     const idx = sortedChapters.findIndex((c) => c.number === displayChapter)
     if (idx > 0) {
+      const wasPlaying = isPlaying
       setPlaybackStep(0)
       setElapsedPct(0)
-      setIsPlaying(false)
+      if (!wasPlaying) setIsPlaying(false)
       setCurrentChapter(sortedChapters[idx - 1].number)
     }
   }
@@ -165,9 +197,10 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
     if (sortedChapters.length === 0 || displayChapter === null) return
     const idx = sortedChapters.findIndex((c) => c.number === displayChapter)
     if (idx < sortedChapters.length - 1) {
+      const wasPlaying = isPlaying
       setPlaybackStep(0)
       setElapsedPct(0)
-      setIsPlaying(false)
+      if (!wasPlaying) setIsPlaying(false)
       setCurrentChapter(sortedChapters[idx + 1].number)
     }
   }
@@ -445,8 +478,8 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
       </div>
 
       <InspectionReport
-        cards={cards}
-        connections={connections}
+        cards={revealedCards}
+        connections={revealedConnections}
         currentChapter={displayChapter}
         onHighlightCard={handleHighlightCard}
       />

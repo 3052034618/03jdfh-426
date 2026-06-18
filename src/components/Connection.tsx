@@ -76,6 +76,10 @@ export function ConnectionLine({
     }
   }, [connection.lineType, active, isSelected])
 
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation()
+  }
+
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
     onSelect?.(connection)
@@ -144,6 +148,7 @@ export function ConnectionLine({
           cursor: 'pointer',
           pointerEvents: 'stroke',
         }}
+        onMouseDown={handleMouseDown}
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
@@ -161,6 +166,7 @@ export function ConnectionLine({
           pointerEvents: 'stroke',
           opacity: 0.0,
         }}
+        onMouseDown={handleMouseDown}
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}

@@ -233,9 +233,22 @@ export function ClueWall() {
     [screenToCanvas, moveCardToWall]
   )
 
+  function isConnectionTarget(target: EventTarget | null): boolean {
+    if (!target) return false
+    const el = target as SVGElement
+    if (el.tagName === 'path' && el.getAttribute('stroke') === 'transparent') return true
+    const parent = el.parentElement
+    if (parent?.tagName === 'g') {
+      const paths = parent.querySelectorAll('path[stroke="transparent"]')
+      return paths.length > 0
+    }
+    return false
+  }
+
   const handleCardMouseDown = useCallback(
     (e: React.MouseEvent, card: Card) => {
       if (e.button === 2) return
+      if (isConnectionTarget(e.target)) return
 
       const isMultiSelect = e.shiftKey || e.ctrlKey || e.metaKey
 
@@ -458,15 +471,19 @@ export function ClueWall() {
     cancelCreatingConnection()
   }, [cancelCreatingConnection])
 
-  const handleCanvasClick = useCallback(() => {
-    setContextMenu(null)
-    setShowFilterPanel(false)
-    if (!creatingConnection.sourceId) {
-      setSelectedCardIds(new Set())
-      selectCard(null)
-      selectConnection(null)
-    }
-  }, [creatingConnection.sourceId, selectCard, selectConnection])
+  const handleCanvasClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (isConnectionTarget(e.target)) return
+      setContextMenu(null)
+      setShowFilterPanel(false)
+      if (!creatingConnection.sourceId) {
+        setSelectedCardIds(new Set())
+        selectCard(null)
+        selectConnection(null)
+      }
+    },
+    [creatingConnection.sourceId, selectCard, selectConnection]
+  )
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
