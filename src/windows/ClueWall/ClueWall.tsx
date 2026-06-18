@@ -512,7 +512,7 @@ export function ClueWall() {
           onDragOver={handleDragOver}
         >
           <svg
-            className="absolute inset-0 pointer-events-none"
+            className="absolute inset-0"
             style={{ width: '3000px', height: '3000px' }}
           >
             {connections.map((conn) => {
@@ -520,17 +520,18 @@ export function ClueWall() {
               const targetCard = getCardById(conn.targetId)
               if (!sourceCard || !targetCard) return null
               return (
-                <g
-                  key={conn.id}
-                  style={{ pointerEvents: 'auto' }}
-                  onContextMenu={(e) => handleConnectionContextMenu(e as unknown as React.MouseEvent, conn)}
-                >
+                <g key={conn.id}>
                   <ConnectionLine
                     connection={conn}
                     sourceCard={sourceCard}
                     targetCard={targetCard}
                     isSelected={selectedConnectionId === conn.id}
-                    onSelect={() => selectConnection(conn.id)}
+                    onSelect={() => {
+                      selectConnection(conn.id)
+                      selectCard(null)
+                      setSelectedCardIds(new Set())
+                    }}
+                    onContextMenu={handleConnectionContextMenu}
                   />
                 </g>
               )

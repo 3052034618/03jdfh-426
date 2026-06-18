@@ -33,33 +33,35 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
   )
 
   const visibleCards = useMemo((): VisibleCard[] => {
-    return cards.map((card) => {
-      if (currentChapter === null) {
-        return { ...card, opacity: 1, visible: true }
-      }
+    return cards
+      .filter((card) => {
+        if (currentChapter === null) return true
+        return card.chapter <= currentChapter
+      })
+      .map((card) => {
+        if (currentChapter === null) {
+          return { ...card, opacity: 1, visible: true }
+        }
 
-      let opacity = 1
-      let visible = true
+        let opacity = 1
+        let visible = true
 
-      if (card.chapter < currentChapter) {
-        opacity = 0.3
-      } else if (card.chapter > currentChapter) {
-        opacity = 0.1
-        visible = false
-      }
+        if (card.chapter < currentChapter) {
+          opacity = 0.3
+        }
 
-      return {
-        ...card,
-        opacity,
-        visible,
-      }
-    })
+        return {
+          ...card,
+          opacity,
+          visible,
+        }
+      })
   }, [cards, currentChapter])
 
   const visibleConnections = useMemo(() => {
     if (currentChapter === null) return connections
 
-    const visibleCardIds = new Set(visibleCards.filter((c) => c.visible || c.opacity > 0.1).map((c) => c.id))
+    const visibleCardIds = new Set(visibleCards.map((c) => c.id))
 
     return connections.filter(
       (conn) => visibleCardIds.has(conn.sourceId) && visibleCardIds.has(conn.targetId)
@@ -113,12 +115,12 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
     if (currentChapter === null) return 1
     if (card.chapter === currentChapter) return 1
     if (card.chapter < currentChapter) return 0.3
-    return 0.1
+    return 0
   }
 
   const getCardFilter = (card: Card) => {
     if (currentChapter === null) return 'none'
-    if (card.chapter > currentChapter) return 'grayscale(100%)'
+    if (card.chapter < currentChapter) return 'grayscale(60%)'
     return 'none'
   }
 

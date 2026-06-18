@@ -15,6 +15,23 @@ interface CardState {
   updateCardPosition: (id: string, position: { x: number; y: number }) => void;
 }
 
+const CARD_WIDTH = 192
+const CARD_HEIGHT = 120
+const COLS = 4
+const SPACING_X = 60
+const SPACING_Y = 60
+const START_X = 80
+const START_Y = 80
+
+function calcGridPosition(index: number): { x: number; y: number } {
+  const row = Math.floor(index / COLS)
+  const col = index % COLS
+  return {
+    x: START_X + col * (CARD_WIDTH + SPACING_X),
+    y: START_Y + row * (CARD_HEIGHT + SPACING_Y),
+  }
+}
+
 const sampleCards: Card[] = [
   {
     id: 'sample-1',
@@ -24,8 +41,8 @@ const sampleCards: Card[] = [
     chapter: 1,
     reliability: 85,
     keywords: ['录音', '脚步声', '三楼', '异常音频'],
-    position: { x: 0, y: 0 },
-    onWall: false,
+    position: calcGridPosition(0),
+    onWall: true,
     createdAt: new Date('2024-03-15'),
     updatedAt: new Date('2024-03-15'),
   },
@@ -37,8 +54,8 @@ const sampleCards: Card[] = [
     chapter: 1,
     reliability: 72,
     keywords: ['照片', '地下室', '人影', '保安'],
-    position: { x: 0, y: 0 },
-    onWall: false,
+    position: calcGridPosition(1),
+    onWall: true,
     createdAt: new Date('2024-03-18'),
     updatedAt: new Date('2024-03-18'),
   },
@@ -50,8 +67,8 @@ const sampleCards: Card[] = [
     chapter: 2,
     reliability: 95,
     keywords: ['笔记', '李教授', '量子理论', '失踪前'],
-    position: { x: 0, y: 0 },
-    onWall: false,
+    position: calcGridPosition(2),
+    onWall: true,
     createdAt: new Date('2024-03-20'),
     updatedAt: new Date('2024-03-20'),
   },
@@ -63,14 +80,14 @@ const sampleCards: Card[] = [
     chapter: 2,
     reliability: 100,
     keywords: ['失踪报告', '保洁员', '四楼', '监控'],
-    position: { x: 0, y: 0 },
-    onWall: false,
+    position: calcGridPosition(3),
+    onWall: true,
     createdAt: new Date('2024-03-23'),
     updatedAt: new Date('2024-03-23'),
   },
 ]
 
-export const useCardStore = create<CardState>((set) => ({
+export const useCardStore = create<CardState>((set, get) => ({
   cards: sampleCards,
   selectedCardId: null,
   filter: {
@@ -79,19 +96,23 @@ export const useCardStore = create<CardState>((set) => ({
     search: '',
   },
   addCard: (card) =>
-    set((state) => ({
-      cards: [
-        ...state.cards,
-        {
-          ...card,
-          id: uuidv4(),
-          position: { x: 0, y: 0 },
-          onWall: false,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ],
-    })),
+    set((state) => {
+      const wallCards = state.cards.filter((c) => c.onWall)
+      const nextIndex = wallCards.length
+      return {
+        cards: [
+          ...state.cards,
+          {
+            ...card,
+            id: uuidv4(),
+            position: calcGridPosition(nextIndex),
+            onWall: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+      }
+    }),
   updateCard: (id, updates) =>
     set((state) => ({
       cards: state.cards.map((card) =>

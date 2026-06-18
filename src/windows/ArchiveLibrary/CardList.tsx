@@ -51,7 +51,7 @@ function sortCards(cards: Card[], sortField: SortField): Card[] {
 }
 
 function handleDragStart(e: React.DragEvent, card: Card) {
-  e.dataTransfer.setData('application/json', JSON.stringify(card))
+  e.dataTransfer.setData('text/plain', card.id)
   e.dataTransfer.effectAllowed = 'copy'
 }
 

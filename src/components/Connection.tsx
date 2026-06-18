@@ -1,13 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useCallback } from 'react'
 import type { Connection, Card } from '../types'
 import { getBezierPath, getMidpoint, getLineStyle, getLineColor } from '../utils/svg'
-import { Tooltip } from './Tooltip'
 
 const relationTypeLabels: Record<string, string> = {
   causality: '因果关系',
   misleading: '误导性关联',
   homology: '同源关系',
   unconfirmed: '未确认关联',
+}
+
+const lineTypeLabels: Record<string, string> = {
+  red: '红线',
+  dashed: '虚线',
+  contaminated: '污染线',
 }
 
 interface ConnectionProps {
@@ -18,6 +23,7 @@ interface ConnectionProps {
   isHovered?: boolean
   onSelect?: (connection: Connection) => void
   onHover?: (connection: Connection | null) => void
+  onContextMenu?: (e: React.MouseEvent, connection: Connection) => void
 }
 
 const CARD_WIDTH = 192
@@ -31,8 +37,10 @@ export function ConnectionLine({
   isHovered,
   onSelect,
   onHover,
+  onContextMenu,
 }: ConnectionProps) {
   const [localHovered, setLocalHovered] = useState(false)
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
   const active = isSelected || isHovered || localHovered
 
   const { path, arrowId, midpoint } = useMemo(() => {
@@ -62,30 +70,70 @@ export function ConnectionLine({
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
+    e.preventDefault()
     onSelect?.(connection)
   }
 
-  const handleMouseEnter = () => {
+  const handleMouseEnter = useCallback((e: React.MouseEvent) => {
     setLocalHovered(true)
     onHover?.(connection)
-  }
+    updateTooltipPos(e)
+  }, [connection, onHover])
 
-  const handleMouseLeave = () => {
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (localHovered) {
+      updateTooltipPos(e)
+    }
+  }, [localHovered])
+
+  const handleMouseLeave = useCallback(() => {
     setLocalHovered(false)
+    setTooltipPos(null)
     onHover?.(null)
+  }, [onHover])
+
+  const updateTooltipPos = (e: React.MouseEvent) => {
+    setTooltipPos({ x: e.clientX, y: e.clientY })
   }
 
-  const tooltipContent = (
-    <div className="text-sm">
-      <div className="font-semibold text-white mb-1">
-        {relationTypeLabels[connection.relationType] || connection.relationType}
-      </div>
-      <div className="text-gray-300 text-xs">{connection.reason}</div>
-    </div>
-  )
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    onContextMenu?.(e, connection)
+  }
+
+  const relationLabel = relationTypeLabels[connection.relationType] || connection.relationType
+  const lineLabel = lineTypeLabels[connection.lineType] || connection.lineType
 
   return (
-    <g>
+    <>
+      <path
+        d={path}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={24}
+        style={{ cursor: 'pointer' }}
+        onClick={handleClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onContextMenu={handleContextMenu}
+      />
+
+      <path
+        d={path}
+        fill="none"
+        stroke={lineStyle.stroke}
+        strokeWidth={lineStyle.strokeWidth}
+        strokeDasharray={lineStyle.strokeDasharray}
+        markerEnd={`url(#${arrowId})`}
+        style={{
+          filter: lineStyle.filter,
+          pointerEvents: 'none',
+          transition: 'all 0.2s ease',
+        }}
+      />
+
       <defs>
         <marker
           id={arrowId}
@@ -103,33 +151,6 @@ export function ConnectionLine({
         </marker>
       </defs>
 
-      <Tooltip content={tooltipContent} position="top">
-        <path
-          d={path}
-          fill="none"
-          stroke="transparent"
-          strokeWidth={20}
-          style={{ cursor: 'pointer' }}
-          onClick={handleClick}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-        />
-      </Tooltip>
-
-      <path
-        d={path}
-        fill="none"
-        stroke={lineStyle.stroke}
-        strokeWidth={lineStyle.strokeWidth}
-        strokeDasharray={lineStyle.strokeDasharray}
-        markerEnd={`url(#${arrowId})`}
-        style={{
-          filter: lineStyle.filter,
-          pointerEvents: 'none',
-          transition: 'all 0.2s ease',
-        }}
-      />
-
       {active && (
         <circle
           cx={midpoint.x}
@@ -142,6 +163,39 @@ export function ConnectionLine({
           }}
         />
       )}
-    </g>
+
+      {localHovered && tooltipPos && (
+        <foreignObject
+          x={midpoint.x - 100}
+          y={midpoint.y - 70}
+          width={200}
+          height={60}
+          style={{ pointerEvents: 'none' }}
+        >
+          <div
+            style={{
+              background: 'rgba(17, 17, 20, 0.95)',
+              border: '1px solid rgba(139, 0, 0, 0.6)',
+              borderRadius: '6px',
+              padding: '8px 12px',
+              color: '#e8e8e8',
+              fontSize: '12px',
+              fontFamily: "'IBM Plex Mono', monospace",
+              boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ fontWeight: 600, color: '#f87171', marginBottom: '2px' }}>
+              {lineLabel} · {relationLabel}
+            </div>
+            {connection.reason && (
+              <div style={{ color: '#9ca3af', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {connection.reason}
+              </div>
+            )}
+          </div>
+        </foreignObject>
+      )}
+    </>
   )
 }
