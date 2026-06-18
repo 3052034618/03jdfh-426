@@ -144,6 +144,7 @@ export function ConnectionLine({
         fill="none"
         stroke="transparent"
         strokeWidth={32}
+        data-connection-hit="true"
         style={{
           cursor: 'pointer',
           pointerEvents: 'stroke',
@@ -161,6 +162,7 @@ export function ConnectionLine({
         fill="none"
         stroke="transparent"
         strokeWidth={14}
+        data-connection-hit="true"
         style={{
           cursor: 'pointer',
           pointerEvents: 'stroke',

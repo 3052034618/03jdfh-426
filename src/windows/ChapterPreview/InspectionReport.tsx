@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { AlertTriangle, Eye, EyeOff, Link2, ChevronDown, ChevronUp } from 'lucide-react'
+import { AlertTriangle, Eye, EyeOff, Link2, ChevronDown, ChevronUp, Pin } from 'lucide-react'
 import type { Card, Connection, CardType } from '../../types'
 
 interface LeakedClue {
@@ -36,6 +36,15 @@ const cardTypeLabels: Record<CardType, string> = {
   missing_report: '失踪报告',
 }
 
+type FilterType = 'all' | 'leaked' | 'buried' | 'orphaned'
+
+const filterLabels: Record<FilterType, string> = {
+  all: '全部',
+  leaked: '泄露',
+  buried: '埋藏',
+  orphaned: '孤立',
+}
+
 export function InspectionReport({ cards, connections, currentChapter, onHighlightCard }: InspectionReportProps) {
   const [isExpanded, setIsExpanded] = useState(true)
   const [expandedSections, setExpandedSections] = useState({
@@ -43,6 +52,8 @@ export function InspectionReport({ cards, connections, currentChapter, onHighlig
     buried: true,
     orphaned: true,
   })
+  const [activeFilter, setActiveFilter] = useState<FilterType>('all')
+  const [pinnedCardIds, setPinnedCardIds] = useState<Set<string>>(new Set())
 
   const issues = useMemo(() => {
     if (currentChapter === null) return { leaked: [], buried: [], orphaned: [] }
@@ -97,6 +108,32 @@ export function InspectionReport({ cards, connections, currentChapter, onHighlig
     }))
   }
 
+  const togglePin = (cardId: string) => {
+    setPinnedCardIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(cardId)) {
+        next.delete(cardId)
+      } else {
+        next.add(cardId)
+      }
+      return next
+    })
+  }
+
+  const allIssues = useMemo(() => {
+    return [...issues.leaked, ...issues.buried, ...issues.orphaned]
+  }, [issues])
+
+  const pinnedIssues = useMemo(() => {
+    if (pinnedCardIds.size === 0) return []
+    return allIssues.filter((issue) => pinnedCardIds.has(issue.card.id))
+  }, [allIssues, pinnedCardIds])
+
+  const isSectionVisible = (section: 'leaked' | 'buried' | 'orphaned') => {
+    if (activeFilter === 'all') return true
+    return activeFilter === section
+  }
+
   const IssueIcon = ({ type }: { type: InspectionIssue['type'] }) => {
     switch (type) {
       case 'leaked':
@@ -138,10 +175,10 @@ export function InspectionReport({ cards, connections, currentChapter, onHighlig
     </button>
   )
 
-  const IssueItem = ({ issue }: { issue: InspectionIssue }) => (
+  const IssueItem = ({ issue, isPinned = false }: { issue: InspectionIssue; isPinned?: boolean }) => (
     <div
       onClick={() => onHighlightCard(issue.card.id)}
-      className="px-4 py-3 border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer transition-colors group"
+      className={`px-4 py-3 border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer transition-colors group ${isPinned ? 'border-l-2 border-l-red-500' : ''}`}
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5">
@@ -159,11 +196,22 @@ export function InspectionReport({ cards, connections, currentChapter, onHighlig
           </div>
           <p className="text-xs text-gray-500">{issue.suggestedAction}</p>
         </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            togglePin(issue.card.id)
+          }}
+          className={`mt-0.5 p-1 rounded transition-colors ${pinnedCardIds.has(issue.card.id) ? 'text-red-400' : 'text-gray-600 hover:text-gray-400'}`}
+        >
+          <Pin className="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
   )
 
   const totalIssues = issues.leaked.length + issues.buried.length + issues.orphaned.length
+
+  const filterTypes: FilterType[] = ['all', 'leaked', 'buried', 'orphaned']
 
   return (
     <div className="border-t border-gray-800 bg-gray-950">
@@ -189,64 +237,103 @@ export function InspectionReport({ cards, connections, currentChapter, onHighlig
 
       {isExpanded && (
         <div className="max-h-64 overflow-y-auto">
-          <SectionHeader
-            title="泄露的线索"
-            count={issues.leaked.length}
-            section="leaked"
-            icon={<Eye className="w-4 h-4 text-red-400" />}
-          />
-          {expandedSections.leaked && (
-            <div>
-              {issues.leaked.length === 0 ? (
-                <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                  没有发现泄露的线索
-                </div>
-              ) : (
-                issues.leaked.map((issue) => (
-                  <IssueItem key={`leaked-${issue.card.id}`} issue={issue} />
-                ))
-              )}
-            </div>
+          <div className="flex items-center gap-1.5 px-4 py-2 bg-gray-900/50">
+            {filterTypes.map((filter) => (
+              <button
+                key={filter}
+                onClick={() => setActiveFilter(filter)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
+                  activeFilter === filter
+                    ? 'bg-[#8b0000] text-white'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-300'
+                }`}
+              >
+                {filterLabels[filter]}
+              </button>
+            ))}
+          </div>
+
+          {pinnedIssues.length > 0 && (
+            <>
+              <div className="px-4 py-1.5 bg-gray-900/80 border-b border-gray-800">
+                <span className="text-xs font-medium text-red-400">📌 关注中</span>
+              </div>
+              {pinnedIssues.map((issue) => (
+                <IssueItem key={`pinned-${issue.type}-${issue.card.id}`} issue={issue} isPinned />
+              ))}
+            </>
           )}
 
-          <SectionHeader
-            title="埋藏过深"
-            count={issues.buried.length}
-            section="buried"
-            icon={<EyeOff className="w-4 h-4 text-yellow-400" />}
-          />
-          {expandedSections.buried && (
-            <div>
-              {issues.buried.length === 0 ? (
-                <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                  没有发现埋藏过深的线索
+          {isSectionVisible('leaked') && (
+            <>
+              <SectionHeader
+                title="泄露的线索"
+                count={issues.leaked.length}
+                section="leaked"
+                icon={<Eye className="w-4 h-4 text-red-400" />}
+              />
+              {expandedSections.leaked && (
+                <div>
+                  {issues.leaked.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                      没有发现泄露的线索
+                    </div>
+                  ) : (
+                    issues.leaked.map((issue) => (
+                      <IssueItem key={`leaked-${issue.card.id}`} issue={issue} isPinned={pinnedCardIds.has(issue.card.id)} />
+                    ))
+                  )}
                 </div>
-              ) : (
-                issues.buried.map((issue) => (
-                  <IssueItem key={`buried-${issue.card.id}`} issue={issue} />
-                ))
               )}
-            </div>
+            </>
           )}
 
-          <SectionHeader
-            title="孤立卡片"
-            count={issues.orphaned.length}
-            section="orphaned"
-            icon={<Link2 className="w-4 h-4 text-blue-400" />}
-          />
-          {expandedSections.orphaned && (
-            <div>
-              {issues.orphaned.length === 0 ? (
-                <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                  没有发现孤立卡片
+          {isSectionVisible('buried') && (
+            <>
+              <SectionHeader
+                title="埋藏过深"
+                count={issues.buried.length}
+                section="buried"
+                icon={<EyeOff className="w-4 h-4 text-yellow-400" />}
+              />
+              {expandedSections.buried && (
+                <div>
+                  {issues.buried.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                      没有发现埋藏过深的线索
+                    </div>
+                  ) : (
+                    issues.buried.map((issue) => (
+                      <IssueItem key={`buried-${issue.card.id}`} issue={issue} isPinned={pinnedCardIds.has(issue.card.id)} />
+                    ))
+                  )}
                 </div>
-              ) : (
-                issues.orphaned.map((issue) => (
-                  <IssueItem key={`orphaned-${issue.card.id}`} issue={issue} />
-                ))
               )}
-            </div>
+            </>
+          )}
+
+          {isSectionVisible('orphaned') && (
+            <>
+              <SectionHeader
+                title="孤立卡片"
+                count={issues.orphaned.length}
+                section="orphaned"
+                icon={<Link2 className="w-4 h-4 text-blue-400" />}
+              />
+              {expandedSections.orphaned && (
+                <div>
+                  {issues.orphaned.length === 0 ? (
+                    <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                      没有发现孤立卡片
+                    </div>
+                  ) : (
+                    issues.orphaned.map((issue) => (
+                      <IssueItem key={`orphaned-${issue.card.id}`} issue={issue} isPinned={pinnedCardIds.has(issue.card.id)} />
+                    ))
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

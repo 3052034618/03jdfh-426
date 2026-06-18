@@ -236,13 +236,7 @@ export function ClueWall() {
   function isConnectionTarget(target: EventTarget | null): boolean {
     if (!target) return false
     const el = target as SVGElement
-    if (el.tagName === 'path' && el.getAttribute('stroke') === 'transparent') return true
-    const parent = el.parentElement
-    if (parent?.tagName === 'g') {
-      const paths = parent.querySelectorAll('path[stroke="transparent"]')
-      return paths.length > 0
-    }
-    return false
+    return el.hasAttribute?.('data-connection-hit') || false
   }
 
   const handleCardMouseDown = useCallback(
@@ -781,7 +775,7 @@ export function ClueWall() {
           <div className="absolute" style={{ width: '3000px', height: '3000px' }}>
             <svg
               className="absolute inset-0"
-              style={{ width: '3000px', height: '3000px', zIndex: 1 }}
+              style={{ width: '3000px', height: '3000px', zIndex: 3, pointerEvents: 'none' }}
             >
               {connections.map((conn) => {
                 const sourceCard = getCardById(conn.sourceId)

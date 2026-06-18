@@ -7,7 +7,7 @@ import { WindowFrame } from '../../components/WindowFrame'
 import { useCardStore } from '../../store/useCardStore'
 import { useConnectionStore } from '../../store/useConnectionStore'
 import { useChapterStore } from '../../store/useChapterStore'
-import { Play, Pause, SkipBack, SkipForward, ChevronRight, Clock } from 'lucide-react'
+import { Play, Pause, SkipBack, SkipForward, RotateCcw, Clock, GripHorizontal } from 'lucide-react'
 import type { Card } from '../../types'
 import { cn } from '../../lib/utils'
 
@@ -23,6 +23,13 @@ interface ChapterPreviewProps {
   onMaximize?: () => void
 }
 
+interface TimelineSegment {
+  chapterNumber: number
+  cardsInChapter: Card[]
+  stepsInChapter: number
+  startStep: number
+}
+
 const STEP_MS = 3000
 
 export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPreviewProps) {
@@ -33,11 +40,14 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
   const canvasRef = useRef<HTMLDivElement>(null)
 
   const [isPlaying, setIsPlaying] = useState(false)
-  const playbackTimerRef = useRef<number | null>(null)
-  const [playbackStep, setPlaybackStep] = useState(0)
+  const [globalStep, setGlobalStep] = useState(0)
   const [elapsedPct, setElapsedPct] = useState(0)
   const lastTickRef = useRef<number>(0)
   const rafRef = useRef<number | null>(null)
+  const [userNavigated, setUserNavigated] = useState(false)
+
+  const scrubberRef = useRef<HTMLDivElement>(null)
+  const [isScrubbing, setIsScrubbing] = useState(false)
 
   const sortedChapters = useMemo(
     () => [...chapters].sort((a, b) => a.number - b.number),
@@ -50,10 +60,61 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
     }
   }, [currentChapter, sortedChapters, setCurrentChapter])
 
+  const globalTimeline = useMemo((): TimelineSegment[] => {
+    const timeline: TimelineSegment[] = []
+    let cumulative = 0
+    for (const ch of sortedChapters) {
+      const chCards = cards.filter((c) => c.chapter === ch.number)
+      const steps = Math.max(1, chCards.length + 1)
+      timeline.push({
+        chapterNumber: ch.number,
+        cardsInChapter: chCards,
+        stepsInChapter: steps,
+        startStep: cumulative,
+      })
+      cumulative += steps
+    }
+    return timeline
+  }, [sortedChapters, cards])
+
+  const totalGlobalSteps = useMemo(() => {
+    if (globalTimeline.length === 0) return 0
+    const last = globalTimeline[globalTimeline.length - 1]
+    return last.startStep + last.stepsInChapter
+  }, [globalTimeline])
+
+  const currentSegment = useMemo((): TimelineSegment | null => {
+    if (globalTimeline.length === 0) return null
+    for (const seg of globalTimeline) {
+      if (globalStep >= seg.startStep && globalStep < seg.startStep + seg.stepsInChapter) {
+        return seg
+      }
+    }
+    return globalTimeline[globalTimeline.length - 1]
+  }, [globalTimeline, globalStep])
+
   const displayChapter = useMemo(() => {
-    if (currentChapter === null) return null
+    if (isPlaying && currentSegment) {
+      return currentSegment.chapterNumber
+    }
     return currentChapter
-  }, [currentChapter])
+  }, [isPlaying, currentSegment, currentChapter])
+
+  const playbackStep = useMemo(() => {
+    if (isPlaying && currentSegment) {
+      return globalStep - currentSegment.startStep
+    }
+    return 0
+  }, [isPlaying, currentSegment, globalStep])
+
+  useEffect(() => {
+    if (isPlaying && currentSegment) {
+      const chNum = currentSegment.chapterNumber
+      if (currentChapter !== chNum) {
+        setCurrentChapter(chNum)
+      }
+    }
+  }, [isPlaying, currentSegment, currentChapter, setCurrentChapter])
 
   const visibleCards = useMemo((): VisibleCard[] => {
     return cards
@@ -124,39 +185,36 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
   }, [revealedCards, connections])
 
   const tickLoop = useCallback(() => {
-    if (!isPlaying || displayChapter === null) return
+    if (!isPlaying || totalGlobalSteps === 0) return
     const now = performance.now()
     const dt = now - lastTickRef.current
     lastTickRef.current = now
-    const totalSteps = Math.max(1, newChapterCards.length + 1)
-    const stepMs = STEP_MS / totalSteps
+
+    const seg = globalTimeline.find((s) => globalStep >= s.startStep && globalStep < s.startStep + s.stepsInChapter)
+    if (!seg) {
+      setIsPlaying(false)
+      return
+    }
+
+    const stepMs = STEP_MS / seg.stepsInChapter
 
     setElapsedPct((prev) => {
       const next = prev + (dt / stepMs)
       if (next >= 1) {
-        setPlaybackStep((p) => {
-          const nextStep = p + 1
-          if (nextStep >= totalSteps) {
-            const currentIdx = sortedChapters.findIndex((c) => c.number === displayChapter)
-            if (currentIdx < sortedChapters.length - 1) {
-              const nextChapter = sortedChapters[currentIdx + 1]
-              setCurrentChapter(nextChapter.number)
-              setPlaybackStep(0)
-              setElapsedPct(0)
-              return 0
-            } else {
-              setIsPlaying(false)
-              return p
-            }
-          }
-          return nextStep
-        })
+        const nextGlobalStep = globalStep + 1
+        if (nextGlobalStep >= totalGlobalSteps) {
+          setGlobalStep(totalGlobalSteps - 1)
+          setElapsedPct(0)
+          setIsPlaying(false)
+          return 0
+        }
+        setGlobalStep(nextGlobalStep)
         return 0
       }
       return next
     })
     rafRef.current = requestAnimationFrame(tickLoop)
-  }, [isPlaying, displayChapter, newChapterCards, sortedChapters, setCurrentChapter])
+  }, [isPlaying, globalStep, totalGlobalSteps, globalTimeline])
 
   useEffect(() => {
     if (isPlaying) {
@@ -171,50 +229,71 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
     }
   }, [isPlaying, tickLoop])
 
-  const handlePlayPause = () => {
-    if (!displayChapter || sortedChapters.length === 0) return
-    const totalSteps = Math.max(1, newChapterCards.length + 1)
-    if (!isPlaying && playbackStep >= totalSteps) {
-      setPlaybackStep(0)
+  const handlePlayPause = useCallback(() => {
+    if (sortedChapters.length === 0) return
+
+    if (isPlaying) {
+      setIsPlaying(false)
+      setUserNavigated(false)
+      return
+    }
+
+    if (userNavigated) {
+      setUserNavigated(false)
+      const seg = globalTimeline.find((s) => s.chapterNumber === displayChapter)
+      if (seg) {
+        setGlobalStep(seg.startStep)
+        setElapsedPct(0)
+      }
+    } else {
+      setGlobalStep(0)
       setElapsedPct(0)
     }
-    setIsPlaying((p) => !p)
-  }
 
-  const handlePrevChapter = () => {
+    setIsPlaying(true)
+  }, [isPlaying, sortedChapters, userNavigated, globalTimeline, displayChapter])
+
+  const handlePrevChapter = useCallback(() => {
     if (sortedChapters.length === 0 || displayChapter === null) return
     const idx = sortedChapters.findIndex((c) => c.number === displayChapter)
     if (idx > 0) {
-      const wasPlaying = isPlaying
-      setPlaybackStep(0)
-      setElapsedPct(0)
-      if (!wasPlaying) setIsPlaying(false)
-      setCurrentChapter(sortedChapters[idx - 1].number)
+      const prevCh = sortedChapters[idx - 1]
+      setCurrentChapter(prevCh.number)
+      setUserNavigated(true)
+      setIsPlaying(false)
+      const seg = globalTimeline.find((s) => s.chapterNumber === prevCh.number)
+      if (seg) {
+        setGlobalStep(seg.startStep)
+        setElapsedPct(0)
+      }
     }
-  }
+  }, [sortedChapters, displayChapter, setCurrentChapter, globalTimeline])
 
-  const handleNextChapter = () => {
+  const handleNextChapter = useCallback(() => {
     if (sortedChapters.length === 0 || displayChapter === null) return
     const idx = sortedChapters.findIndex((c) => c.number === displayChapter)
     if (idx < sortedChapters.length - 1) {
-      const wasPlaying = isPlaying
-      setPlaybackStep(0)
-      setElapsedPct(0)
-      if (!wasPlaying) setIsPlaying(false)
-      setCurrentChapter(sortedChapters[idx + 1].number)
+      const nextCh = sortedChapters[idx + 1]
+      setCurrentChapter(nextCh.number)
+      setUserNavigated(true)
+      setIsPlaying(false)
+      const seg = globalTimeline.find((s) => s.chapterNumber === nextCh.number)
+      if (seg) {
+        setGlobalStep(seg.startStep)
+        setElapsedPct(0)
+      }
     }
-  }
+  }, [sortedChapters, displayChapter, setCurrentChapter, globalTimeline])
 
-  const handleResetChapterPlayback = () => {
-    setPlaybackStep(0)
-    setElapsedPct(0)
+  const handleResetPlayback = useCallback(() => {
     setIsPlaying(false)
-  }
-
-  useEffect(() => {
-    setPlaybackStep(0)
+    setGlobalStep(0)
     setElapsedPct(0)
-  }, [displayChapter])
+    setUserNavigated(false)
+    if (sortedChapters.length > 0) {
+      setCurrentChapter(sortedChapters[0].number)
+    }
+  }, [sortedChapters, setCurrentChapter])
 
   const handleAddChapter = () => {
     const nextNumber = sortedChapters.length > 0 ? sortedChapters[sortedChapters.length - 1].number + 1 : 1
@@ -299,13 +378,60 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
     return 1
   }
 
+  const globalPct = totalGlobalSteps > 0
+    ? Math.min(1, (globalStep + elapsedPct) / totalGlobalSteps)
+    : 0
+
+  const scrubToPosition = useCallback((clientX: number) => {
+    if (!scrubberRef.current || totalGlobalSteps === 0) return
+    const rect = scrubberRef.current.getBoundingClientRect()
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    const step = Math.min(Math.floor(pct * totalGlobalSteps), totalGlobalSteps - 1)
+    setGlobalStep(step)
+    setElapsedPct(0)
+    setIsPlaying(false)
+
+    const seg = globalTimeline.find((s) => step >= s.startStep && step < s.startStep + s.stepsInChapter)
+    if (seg) {
+      setCurrentChapter(seg.chapterNumber)
+    }
+  }, [totalGlobalSteps, globalTimeline, setCurrentChapter])
+
+  const handleScrubberMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsScrubbing(true)
+    scrubToPosition(e.clientX)
+  }, [scrubToPosition])
+
+  useEffect(() => {
+    if (!isScrubbing) return
+
+    const onMove = (e: MouseEvent) => {
+      scrubToPosition(e.clientX)
+    }
+    const onUp = () => {
+      setIsScrubbing(false)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [isScrubbing, scrubToPosition])
+
   const currentChapterName = displayChapter !== null
     ? sortedChapters.find((c) => c.number === displayChapter)?.name || `第${displayChapter}章`
     : '全部章节'
-  const totalSteps = Math.max(1, newChapterCards.length + 1)
-  const overallPct = displayChapter === null || !isPlaying
-    ? playbackStep >= totalSteps ? 1 : 0
-    : Math.min(1, (playbackStep + elapsedPct) / totalSteps)
+
+  const currentStepLabel = useMemo(() => {
+    if (!currentSegment || !isPlaying) return ''
+    const localStep = globalStep - currentSegment.startStep
+    const total = currentSegment.cardsInChapter.length
+    return `${Math.min(localStep, total)}/${total}`
+  }, [currentSegment, isPlaying, globalStep])
+
   const canPrev = displayChapter !== null && sortedChapters.findIndex((c) => c.number === displayChapter) > 0
   const canNext = displayChapter !== null && sortedChapters.findIndex((c) => c.number === displayChapter) < sortedChapters.length - 1
 
@@ -318,7 +444,13 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
           cards={cards}
           onSelectChapter={(n) => {
             setCurrentChapter(n)
-            handleResetChapterPlayback()
+            setUserNavigated(true)
+            setIsPlaying(false)
+            const seg = globalTimeline.find((s) => s.chapterNumber === n)
+            if (seg) {
+              setGlobalStep(seg.startStep)
+              setElapsedPct(0)
+            }
           }}
           onAddChapter={handleAddChapter}
           onUpdateChapterName={handleUpdateChapterName}
@@ -344,25 +476,25 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
             </button>
             <button
               onClick={handlePlayPause}
-              disabled={displayChapter === null || sortedChapters.length === 0}
+              disabled={sortedChapters.length === 0}
               className={cn(
                 'p-1.5 rounded transition-all',
-                displayChapter !== null
+                sortedChapters.length > 0
                   ? isPlaying
                     ? 'bg-[#8b0000] text-white'
                     : 'text-gray-200 hover:bg-gray-700 hover:text-white'
                   : 'text-gray-600 cursor-not-allowed'
               )}
-              title={isPlaying ? '暂停播放' : '开始播放'}
+              title={isPlaying ? '暂停播放' : (userNavigated ? '从当前章节播放' : '全剧播放')}
             >
               {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             </button>
             <button
-              onClick={handleResetChapterPlayback}
+              onClick={handleResetPlayback}
               className="p-1.5 text-gray-300 hover:bg-gray-700 hover:text-white rounded transition-all"
-              title="重置本章"
+              title="重置到开头"
             >
-              <ChevronRight className="w-4 h-4 rotate-180" />
+              <RotateCcw className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={handleNextChapter}
@@ -377,18 +509,59 @@ export function ChapterPreview({ onClose, onMinimize, onMaximize }: ChapterPrevi
             </button>
           </div>
 
-          <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
-            <div
-              className="h-full bg-gradient-to-r from-[#8b0000] to-[#dc2626] transition-all duration-100 ease-linear rounded-full"
-              style={{ width: `${overallPct * 100}%` }}
-            />
-          </div>
-
-          <div className="text-xs text-gray-400 font-mono tabular-nums min-w-[140px] text-right">
-            {displayChapter !== null
-              ? `新卡片 ${Math.min(playbackStep, newChapterCards.length)}/${newChapterCards.length}`
-              : '—'
+          <div className="text-xs text-gray-400 font-mono tabular-nums min-w-[100px] text-right">
+            {isPlaying && currentStepLabel
+              ? `新卡片 ${currentStepLabel}`
+              : displayChapter !== null
+                ? `${revealedCards.filter((c) => c.chapter <= displayChapter).length} 张`
+                : '—'
             }
+          </div>
+        </div>
+
+        <div className="px-4 pb-2.5 bg-gray-900/60 border-t border-gray-800/50">
+          <div
+            ref={scrubberRef}
+            className="relative h-6 flex items-center cursor-pointer group"
+            onMouseDown={handleScrubberMouseDown}
+          >
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 bg-gray-800 rounded-full border border-gray-700">
+              {globalTimeline.map((seg) => {
+                const startPct = (seg.startStep / totalGlobalSteps) * 100
+                const widthPct = (seg.stepsInChapter / totalGlobalSteps) * 100
+                return (
+                  <div
+                    key={seg.chapterNumber}
+                    className="absolute top-0 bottom-0 bg-gray-700/40 border-l border-gray-600/50"
+                    style={{ left: `${startPct}%`, width: `${widthPct}%` }}
+                  />
+                )
+              })}
+              <div
+                className="h-full bg-gradient-to-r from-[#8b0000] to-[#dc2626] rounded-full transition-[width] duration-75 ease-linear"
+                style={{ width: `${globalPct * 100}%` }}
+              />
+            </div>
+
+            <div
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-white rounded-full shadow-lg border-2 border-[#8b0000] transition-[left] duration-75 ease-linear group-hover:scale-125"
+              style={{ left: `${globalPct * 100}%` }}
+            >
+              <GripHorizontal className="w-2.5 h-2.5 text-[#8b0000] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+            </div>
+
+            {globalTimeline.map((seg) => {
+              const pct = ((seg.startStep + seg.stepsInChapter / 2) / totalGlobalSteps) * 100
+              return (
+                <div
+                  key={`label-${seg.chapterNumber}`}
+                  className="absolute -bottom-0.5 -translate-x-1/2 text-[9px] text-gray-500 font-mono"
+                  style={{ left: `${pct}%` }}
+                >
+                  {seg.chapterNumber}
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
